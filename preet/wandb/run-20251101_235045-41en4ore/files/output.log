@@ -1,0 +1,18 @@
+starting time is:
+2025-11-01 23:50:59.235463
+************************ In total, dataloading takes time: 0:00:00.002850************************
+/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/nn/modules/transformer.py:282: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
+Loaded normalization stats: Mean=2.7192, Std=8.6453
+GT Pose Forecasting (Range->Range):   0%|          | 0/1709 [00:00<?, ?batch/s]Traceback (most recent call last):
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 467, in <module>
+    train(cfg,save_dir, test_loader,
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 133, in train
+    model.train()
+AttributeError: 'function' object has no attribute 'train'
+Traceback (most recent call last):
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 467, in <module>
+    train(cfg,save_dir, test_loader,
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 133, in train
+    model.train()
+AttributeError: 'function' object has no attribute 'train'

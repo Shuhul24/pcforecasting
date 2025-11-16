@@ -1,0 +1,42 @@
+starting time is:
+2025-11-01 23:57:09.502053
+************************ In total, dataloading takes time: 0:00:00.001826************************
+/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/nn/modules/transformer.py:282: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
+Loaded normalization stats: Mean=2.7192, Std=8.6453
+GT Pose Forecasting (Range->Range):   0%|          | 0/1709 [00:00<?, ?batch/s]/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/_inductor/compile_fx.py:135: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+GT Pose Forecasting (Range->Range): 100%|██████████| 1709/1709 [3:06:43<00:00,  6.56s/batch]  
+[191.77118835449218, 122.74140777587891, 66.51793365478515, 105.98511199951172]
+[0.011737636849284172, 0.007507877983152866, 0.004449072293937206, 0.007233310118317604]
+Epoch 0, avg loss is 0.914903, pred_loss is 2.618149, mask_loss is 0.497794, gt is 7.790990, chamfer is 0.000000, range is 2.615007
+ -------------- time for one epoch is 3:06:57.579090 ------
+GT Pose Forecasting (Range->Range): 100%|██████████| 1709/1709 [1:14:56<00:00,  2.63s/batch]
+[314.8543212890625, 134.6299835205078, 112.91399383544922, 140.1818115234375]
+[0.017635228484869002, 0.007962404377758503, 0.006972828321158886, 0.008627358451485634]
+Epoch 1, avg loss is 0.699029, pred_loss is 1.829012, mask_loss is 0.407445, gt is 7.700554, chamfer is 0.000000, range is 1.829012
+ -------------- time for one epoch is 1:15:05.963167 ------
+Traceback (most recent call last):
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 467, in <module>
+    train(cfg,save_dir, test_loader,
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 418, in train
+    torch.save(model.state_dict(), os.path.join(save_dir, "model_epoch_%d.pth" % epoch_idx))
+  File "/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/serialization.py", line 618, in save
+    with _open_zipfile_writer(f) as opened_zipfile:
+  File "/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/serialization.py", line 492, in _open_zipfile_writer
+    return container(name_or_buffer)
+  File "/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/serialization.py", line 463, in __init__
+    super().__init__(torch._C.PyTorchFileWriter(self.name))
+RuntimeError: Parent directory /csehome/p24cs0005/ppmf/checkpoints does not exist.
+Traceback (most recent call last):
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 467, in <module>
+    train(cfg,save_dir, test_loader,
+  File "/csehome/p24cs0005/ppmf/preet/train.py", line 418, in train
+    torch.save(model.state_dict(), os.path.join(save_dir, "model_epoch_%d.pth" % epoch_idx))
+  File "/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/serialization.py", line 618, in save
+    with _open_zipfile_writer(f) as opened_zipfile:
+  File "/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/serialization.py", line 492, in _open_zipfile_writer
+    return container(name_or_buffer)
+  File "/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/serialization.py", line 463, in __init__
+    super().__init__(torch._C.PyTorchFileWriter(self.name))
+RuntimeError: Parent directory /csehome/p24cs0005/ppmf/checkpoints does not exist.

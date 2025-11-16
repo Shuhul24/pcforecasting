@@ -1,0 +1,11 @@
+{"time":"2025-11-01T23:50:49.082035271+05:30","level":"INFO","msg":"stream: starting","core version":"0.22.2"}
+{"time":"2025-11-01T23:50:50.837486322+05:30","level":"INFO","msg":"stream: created new stream","id":"41en4ore"}
+{"time":"2025-11-01T23:50:50.837624425+05:30","level":"INFO","msg":"handler: started","stream_id":"41en4ore"}
+{"time":"2025-11-01T23:50:51.110521184+05:30","level":"INFO","msg":"stream: started","id":"41en4ore"}
+{"time":"2025-11-01T23:50:51.110830339+05:30","level":"INFO","msg":"writer: started","stream_id":"41en4ore"}
+{"time":"2025-11-01T23:50:51.110889069+05:30","level":"INFO","msg":"sender: started","stream_id":"41en4ore"}
+{"time":"2025-11-01T23:51:19.108102735+05:30","level":"INFO","msg":"stream: closing","id":"41en4ore"}
+{"time":"2025-11-01T23:51:21.051696773+05:30","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-11-01T23:51:21.428440489+05:30","level":"INFO","msg":"handler: closed","stream_id":"41en4ore"}
+{"time":"2025-11-01T23:51:21.463777129+05:30","level":"INFO","msg":"sender: closed","stream_id":"41en4ore"}
+{"time":"2025-11-01T23:51:21.463827098+05:30","level":"INFO","msg":"stream: closed","id":"41en4ore"}

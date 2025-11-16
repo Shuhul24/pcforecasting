@@ -1,0 +1,44 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Virtual envs / IDEs / notebooks
+.env
+venv/
+.env/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Data / checkpoints / large files
+*.pth
+*.pt
+checkpoints/
+norm_stats.pt
+run*.out
+*.log
+*.csv
+*.h5
+
+# WandB
+wandb/
+preet/wandb/
+*.wandb
+offline-run*
+
+# Build / compiled libs
+build/
+dist/
+
+# System
+.DS_Store
+
+# compiled C / C++
+*.o
+*.so
+
+# Others
+*.tar
+*.zip

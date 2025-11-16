@@ -1,0 +1,19 @@
+starting time is:
+2025-11-03 16:33:17.866111
+************************ In total, dataloading takes time: 0:00:00.001635************************
+/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/nn/modules/transformer.py:282: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
+Loaded normalization stats: Mean=2.7192, Std=8.6453
+GT Pose Forecasting (Range->Range):   0%|          | 0/1709 [00:00<?, ?batch/s]/csehome/p24cs0005/miniconda3/envs/lidar4d/lib/python3.9/site-packages/torch/_inductor/compile_fx.py:135: UserWarning: TensorFloat32 tensor cores for float32 matrix multiplication available but not enabled. Consider setting `torch.set_float32_matmul_precision('high')` for better performance.
+  warnings.warn(
+GT Pose Forecasting (Range->Range): 100%|██████████| 1709/1709 [3:09:27<00:00,  6.65s/batch]  
+[108.5047119140625, 222.2419647216797, 227.44252014160156, 91.99849853515624]
+[0.006697685830295086, 0.01231679953634739, 0.012792334519326687, 0.005812896229326725]
+Epoch 0, avg loss is 0.915702, pred_loss is 2.627809, mask_loss is 0.497017, gt is 7.792789, chamfer is 0.000000, range is 2.623410
+ -------------- time for one epoch is 3:09:37.074481 ------
+GT Pose Forecasting (Range->Range): 100%|██████████| 1709/1709 [3:03:32<00:00,  6.44s/batch]  
+[106.30036163330078, 63.099317169189455, 94.91534729003907, 98.50406188964844]
+[0.006524107418954372, 0.0038032976910471914, 0.0057316083461046215, 0.0062856926582753655]
+Epoch 1, avg loss is 0.700217, pred_loss is 1.833924, mask_loss is 0.407879, gt is 7.701151, chamfer is 0.000000, range is 1.833923
+ -------------- time for one epoch is 3:03:41.737188 ------
+GT Pose Forecasting (Range->Range):  46%|████▌     | 779/1709 [1:26:37<1:52:13,  7.24s/batch]

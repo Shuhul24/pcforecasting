@@ -1,0 +1,24 @@
+{"time":"2025-11-03T16:33:09.984227615+05:30","level":"INFO","msg":"stream: starting","core version":"0.22.2"}
+{"time":"2025-11-03T16:33:11.686296143+05:30","level":"INFO","msg":"stream: created new stream","id":"179zgbmp"}
+{"time":"2025-11-03T16:33:11.686416673+05:30","level":"INFO","msg":"handler: started","stream_id":"179zgbmp"}
+{"time":"2025-11-03T16:33:11.730830646+05:30","level":"INFO","msg":"stream: started","id":"179zgbmp"}
+{"time":"2025-11-03T16:33:11.731101122+05:30","level":"INFO","msg":"writer: started","stream_id":"179zgbmp"}
+{"time":"2025-11-03T16:33:11.731155629+05:30","level":"INFO","msg":"sender: started","stream_id":"179zgbmp"}
+{"time":"2025-11-03T20:29:38.621508671+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2025-11-03T20:30:10.727966795+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:30:45.209337434+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:31:12.204458852+05:30","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":4090}
+{"time":"2025-11-03T20:31:23.963434251+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2025-11-03T20:32:10.994860099+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2025-11-03T20:33:15.618916005+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:34:45.624500862+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:36:15.630069671+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2025-11-03T20:37:45.634698061+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:39:08.617113645+05:30","level":"WARN","msg":"sender: taking a long time","seconds":600.000423669,"work":"WorkRecord(*service_go_proto.Request_StopStatus); Control(local:true mailbox_slot:\"bb4iznxsdadz\" connection_id:\"1(@)\")"}
+{"time":"2025-11-03T20:39:15.640955186+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:40:45.645934211+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:42:15.648446805+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:43:45.660185239+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": context deadline exceeded"}
+{"time":"2025-11-03T20:45:15.669707967+05:30","level":"INFO","msg":"api: retrying error","error":"Post \"https://api.wandb.ai/graphql\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}
+{"time":"2025-11-03T20:46:16.202448374+05:30","level":"INFO","msg":"sender: succeeded after taking longer than expected","seconds":1027.589952443,"work":"WorkRecord(*service_go_proto.Request_StopStatus); Control(local:true mailbox_slot:\"bb4iznxsdadz\" connection_id:\"1(@)\")"}
+{"time":"2025-11-03T20:46:16.258678904+05:30","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":253}
