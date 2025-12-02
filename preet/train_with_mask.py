@@ -21,8 +21,8 @@ from preet.prior_util import load_contact_module, load_noise_scheduler
 from torch.utils.tensorboard import SummaryWriter
 device = torch.device("cuda")
 torch.set_printoptions(precision=10)
-torch.manual_seed(0)
-np.random.seed(0)
+# torch.manual_seed(0)
+# np.random.seed(0)
 # from src.utils.projection import projection
 # import scenepic as sp
 from src.gt_pose_forecast_1 import load_kitti_data, GTPointCloudForecaster
@@ -34,10 +34,21 @@ print(args)
 from src.models.chamfer import cham_dist
 from tqdm import tqdm
 from preet.unetdiff import FrameByFrameDiffusion
+            
 def train(cfg,save_dir, dataloader, noise_scheduler, model, optimizer, lr_scheduler, start_epochs, num_epochs, use_wandb=True,visualize=True):
     pcf=GTPointCloudForecaster(cfg)
     chamfer_distance_og = cham_dist(cfg)
     loss_L1=nn.L1Loss(reduction="mean")
+    loss_bce = nn.BCEWithLogitsLoss(reduction="mean")
+    # stats = torch.load("norm_stats.pt")
+    # mean = stats['mean'].to(device)
+    # std = stats['std'].to(device)
+    # print(f"Loaded normalization stats: Mean={mean.item():.4f}, Std={std.item():.4f}")
+    # model = torch.compile(model)
+    Projection = projection(cfg)
+    zero = torch.tensor(0.0, device=device)
+    minus1=torch.tensor(-1.0, device=device)
+    loss_L1_no_reduction = nn.L1Loss(reduction="none")
     for epoch_idx in range(0, start_epochs + num_epochs):
         loss_acc = 0
         loss_pred_acc=0
@@ -45,88 +56,42 @@ def train(cfg,save_dir, dataloader, noise_scheduler, model, optimizer, lr_schedu
         loss_gt=0
         loss_chamfer=0
         epoch_start_time = datetime.datetime.now()
-        Projection = projection(cfg)
+        loss_range_acc=0
         i=0
         # batch loop
         # start= datetime.datetime.now()
         # for bn, nbatch in enumerate(dataloader): # debug use the same nbatch, nbatch contains 
         timestep_distances = {f't+{i+1}': [] for i in range(5)}
+        
         all_chamfer_distances = []
         # data_module, test_loader, cfg = load_kitti_datavga()
         # Set up progress bar
         pbar = tqdm(enumerate(dataloader), total=len(dataloader), 
                    desc="GT Pose Forecasting (Range->Range)", unit="batch")
         
-        zero = torch.tensor(0.0, device=device)
         
+        # batch = next(iter(dataloader))
         total_chamfer = 0.0   # <-- Move outside batch loop
         total_count = 0       # <-- Move outside batch loop
-
+        model.train()
         for batch_idx, batch in pbar:
+            # for step in range(1000):
+            # if batch_idx != 0:
+            # continue
             past_data = batch['past_data'].to(device)
             fut_data = batch['fut_data'].to(device)
-            past_poses = batch['past_poses'].to(device)
+            # breakpoint()
+            # past_poses = batch['past_poses'].to(device)
             fut_poses = batch['fut_poses'].to(device)
-            calibration = batch['calibration'][0].to(device)
-            
+            # calibration = batch['calibration'][0].to(device)
+            # breakpoint()
+            predicted_range=batch["predicted_range"].to(device)
+            # breakpoint()
             B = past_data.shape[0]
             T_fut = fut_data.shape[1]
-            predicted_range = torch.zeros((B, T_fut, 64, 2048)).to(device)
 
-            # Process each sample in batch
-            for b in range(B):
-                current_data = past_data[b, -1]  
-                current_pose = past_poses[b, -1]  
-                sample_distances = []
-                
-                for t_fut in range(T_fut):
-                    target_pose = fut_poses[b, t_fut]
-                    gt_data = fut_data[b, t_fut]
-                    gt_pc = pcf.range_data_to_point_cloud(gt_data)
-
-                    with torch.no_grad():
-                        pred_pc = pcf.forecast_point_cloud(
-                            current_data, current_pose, target_pose, calibration
-                        )
-
-                        intensity_placeholder = torch.zeros((pred_pc.shape[0], 1), device=pred_pc.device)
-                        pred_pc_with_intensity = torch.cat([pred_pc, intensity_placeholder], dim=1)
-
-                        range_image0 = range_projection(
-                            pred_pc_with_intensity.cpu().numpy(),
-                            fov_up=cfg["DATA_CONFIG"]["FOV_UP"],
-                            fov_down=cfg["DATA_CONFIG"]["FOV_DOWN"],
-                            proj_H=cfg["DATA_CONFIG"]["HEIGHT"],
-                            proj_W=cfg["DATA_CONFIG"]["WIDTH"],
-                            max_range=cfg["DATA_CONFIG"]["MAX_RANGE"],
-                        )
-
-                        range_image_tensor = torch.from_numpy(range_image0[0]).float().to(device)
-                        # reprojected_point_clouds = Projection.get_valid_points_from_range_view(
-                        #     range_image_tensor, use_batch=False
-                        # )
-                        predicted_range[b, t_fut] = range_image_tensor
-        #                 chamfer_distances, _ = pcf.chamfer_distance(
-        #                     pred_pc.unsqueeze(0), gt_pc.unsqueeze(0)
-        #                 )
-
-        #                 sample_distances.append(chamfer_distances[0])
-                
-        #         avg_chamfer_b = sum(sample_distances) / len(sample_distances)
-        #         # print(f"[Batch {batch_idx}] Avg Chamfer Distance for sample {b}: {avg_chamfer_b:.6f}")
-
-        #         # ✅ Accumulate globally
-        #         total_chamfer += sum(sample_distances)
-        #         total_count += len(sample_distances)
-
-        # # ✅ Compute global average after all batches
-        # global_avg_chamfer = total_chamfer / total_count
-        # print(f"🌐 Global Average Chamfer Distance (entire dataset): {global_avg_chamfer:.6f}")
-
-            # breakpoint()
-                    # target_pcs.append(tgt_seq)
-                # range_forecast=range_projection(pred_pc)
-                # nbatch_norm['action'] = torch.cat([nbatch_norm['obs']['obj_feat_pred'], nbatch_norm['obs']['curr_global_states_pred']], dim=-1) # normalize obs
+            predicted_range_mask = Projection.get_target_mask_from_range_view(predicted_range)
+            # print("Odo Fut Range Mask shape: ", predicted_range_mask.shape)
             
             nbatch_norm={}
             nbatch_norm['action'] = fut_data[:,:,0,:,:]
@@ -134,49 +99,114 @@ def train(cfg,save_dir, dataloader, noise_scheduler, model, optimizer, lr_schedu
             naction_gt = nbatch_norm['action']
             # frame_position = torch.randint(0, 5, (4,))
             target_mask = Projection.get_target_mask_from_range_view(naction_gt)
-            naction=torch.cat([naction_gt-predicted_range,target_mask],dim=1)
-            # noise = torch.randn(naction.shape, device=device).float()
-
+            naction_delta = naction_gt - predicted_range
+            
+            # Define the target for the diffusion model (delta + mask).
+            # This must be defined before creating timesteps.
+            naction = torch.cat([(target_mask * naction_delta).unsqueeze(2), target_mask.unsqueeze(2)], dim=2)
+            
             # sample a diffusion iteration for each data point
             timesteps = torch.randint(
-                0, noise_scheduler.config.num_train_timesteps,
-                (naction.shape[0],), device=device
-            ).long()
-            # forward process
-            input=torch.cat([past_data[:,:,0],predicted_range[:]],dim=1)
+            0, noise_scheduler.config.num_train_timesteps,
+            (naction.shape[0],), device=device
+            ).long() 
+            past_data_mask = Projection.get_target_mask_from_range_view(past_data[:,:,0])
+            # forward process - create conditioning input
+            input_data = torch.cat([past_data[:,:,0] * past_data_mask, predicted_range[:] * predicted_range_mask], dim=1)
+            input_mask = torch.cat([past_data_mask, predicted_range_mask], dim=1)
+            input = torch.cat([input_data.unsqueeze(2), input_mask.unsqueeze(2)], dim=2)
+
             noise = torch.randn(naction.shape, device=device).float()
             noisy_actions = noise_scheduler.add_noise(naction, noise, timesteps)
-            output = model(noisy_actions, timesteps, 
-                                obj_feat=input)
-            sample_pred, mask = output[:,:past_data.shape[1]], output[:,past_data.shape[1]:]
-            
+            output = model(noisy_actions, timesteps,
+            obj_feat=input)
+            # sample_pred = output[:,:past_data.shape[1]], output[:,past_data.shape[1]:]
             # final_inter=target_mask*(sample_pred+predicted_range[:])
-            final_inter=target_mask*(sample_pred+predicted_range[:])
-            if torch.isnan(final_inter).any():
-                print("NaN detected in 'final' tensor calculation!")
-                # Also check the inputs to be sure
-                print("Is sample_pred NaN?", torch.isnan(sample_pred).any())
-                print("Is predicted_range NaN?", torch.isnan(predicted_range).any())
-            final = torch.where(final_inter <= 0, zero, final_inter)
-            # === Compute L2 losses ===
-            loss_pred = loss_L1(final, target_mask*(naction_gt))
-            if torch.isnan(mask).any() or torch.isinf(mask).any():
-                print("NaN or Inf found in MASK tensor!")
-            loss_mask = nn.BCEWithLogitsLoss()(mask, target_mask)
+            # breakpoint()
+            sample_pred,mask= output[:,:,0,:,:],output[:,:,1,:,:]
+            # sample_pred = sample_pred * std + mean
+            # pixelwise_loss = loss_L1_no_reduction(sample_pred, norm_naction)
 
-            loss2=loss_L1(target_mask*(naction_gt),target_mask*(predicted_range[:]))
+            # ✅ Only average the loss from valid pixels (where mask is 1)
+            # masked_loss = pixelwise_loss * target_mask
+            # loss_delta = masked_loss.sum() / (target_mask.sum() + 1e-8)
+
+            loss_mask = loss_bce(mask, target_mask)
+
+            # This is your final, correct loss
+            # loss_pred = loss_delta + loss_mask
+            # with torch.no_grad():
+            # final_delta=sample_pred*std+mean
+            final=sample_pred+predicted_range[:]
+            # if torch.isnan(final_inter).any():
+            # print("NaN detected in 'final' tensor calculation!")
+            # # Also check the inputs to be sure
+            # print("Is sample_pred NaN?", torch.isnan(sample_pred).any())
+            # print("Is predicted_range NaN?", torch.isnan(predicted_range).any())
+            if batch_idx % 500 == 0 and torch.isnan(final).any():
+                print("NaN detected!")
+            # final = torch.where(final_inter < 0, zero, final_inter.clone())
+
+            # final = torch.where(0>final_inter > -0.5, zero, final_inter)
+            # === Compute L2 losses ===
+            # masked_rv=Projection.get_masked_range_view(final,mask)
+            sample_pred = torch.where(naction_gt == -1.0, torch.full_like(sample_pred, -1.0), sample_pred)
+            naction = torch.where(naction_gt == -1.0, torch.full_like(naction_delta, -1.0), naction_delta)
             
-            # λ_rot=0.1
-            # loss = loss_pred 
-            if  epoch_idx>2:
-                batch_distances=[]
-        
-                batch_distances = []
-                loss_chamfer_distance=0
-                chd,cht=chamfer_distance_og(final,target_mask, fut_data, n_samples=-1)
-                loss_chamfer_distance = sum([cd for cd in chd.values()]) / len(
-                chd
-            )
+            
+            loss_delta_unnorm = loss_L1(sample_pred,naction)
+            # loss_mask=loss_bce(mask,target_mask)
+            # loss_pred=loss_delta+loss_mask
+            # masked_rv[naction_gt == -1.0] = -1.0
+            # naction_gt[naction_gt == -1.0] = -1.0
+            # naction_gt_loss = torch.where(naction_gt < 0, zero, naction_gt.clone())
+            # final = torch.where(naction_gt == -1.0, torch.full_like(final, -1.0), final)
+            # pixelwise_loss = loss_L1_no_reduction(final, naction_gt)
+            loss_range=loss_L1(target_mask*final,target_mask*naction_gt)
+            
+            # final=masked_rv
+            loss_pred = loss_range + loss_mask
+            loss2=loss_L1(target_mask*final,target_mask*naction_gt)
+            if  epoch_idx>32:
+                
+
+                batch_loss_chamfer = torch.tensor(0.0, device=device)
+                num_frames = 0
+                for b in range(B):
+                    for t in range(T_fut):
+                        # Get the predicted point cloud from the final range image output
+                        reprojected_point_clouds = Projection.get_valid_points_from_range_view(
+                            final[b, t], use_batch=False
+                        )
+
+                        # Get the ground truth point cloud
+                        gt_data = fut_data[b, t,0].to(device)
+                        # ✅ 2. Corrected the slicing on gt_data.
+                        # It should be handled consistently with how `final[b,t]` is processed.
+                        gt_pc = Projection.get_valid_points_from_range_view(
+                            gt_data, use_batch=False
+                        )
+                        
+                        # breakpoint()
+                        # Calculate the Chamfer distance for the current frame
+                        chamfer_distance_val, _ = pcf.chamfer_distance(
+                            reprojected_point_clouds.unsqueeze(0), gt_pc.unsqueeze(0)
+                        )
+
+                        # ✅ 3. Append the scalar result of this frame's distance to the list.
+                        # .item() is used to get the Python number from the tensor.
+                        batch_loss_chamfer = batch_loss_chamfer + chamfer_distance_val[0]
+                        num_frames += 1
+
+                # 3. Calculate the average loss for the batch
+                if num_frames > 0:
+                    loss_chamfer_distance = batch_loss_chamfer / num_frames
+                    total_chamfer += batch_loss_chamfer.item() 
+                    total_count += num_frames
+
+                else:
+                    loss_chamfer_distance = torch.tensor(0.0, device=device)
+                # breakpoint()
             #     for b in range(B):
             #         sample_distances = []
             #         for t_fut in range(T_fut):
@@ -202,29 +232,26 @@ def train(cfg,save_dir, dataloader, noise_scheduler, model, optimizer, lr_schedu
 
                 # batch_distances = torch.stack(batch_distances)       # (B,)
                 # loss = 0.5*(0.5*(loss_pred) + loss_mask) + 3*(loss_chamfer_distance)
-                loss=(loss_pred) + loss_mask + (loss_chamfer_distance)
+                loss=loss_chamfer_distance+loss_pred
                 # loss_chamfer+=loss_chamfer_distance.item()/B
                 # loss = loss_pred + loss_mask+torch.tensor(batch_distances, device=loss_pred.device).mean()
                 # loss_chamfer+=torch.tensor(batch_distances, device=loss_pred.device).mean().item()
                 loss_chamfer+=loss_chamfer_distance.item()
             else:
-                loss=loss_pred + loss_mask
+                loss=loss_pred 
             # loss = nn.functional.mse_loss(sample_pred, naction_gt) 
+            # print(loss)
+             # Set model back to training mode
+            
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
-            loss_pred_acc+=loss_pred.item()
+            loss_range_acc+=loss_range.item()
+            loss_pred_acc+=loss_delta_unnorm.item()
             loss_mask_acc+=loss_mask.item()
             loss_gt+=loss2.item()
             loss_acc += loss.item()
-            # i += 1
-            # if i % 100 == 0:
-                
-            #     end = datetime.datetime.now()
-            #     print("Epoch %d, batch %d, loss is %f, time for one batch is %s" %(epoch_idx, bn, loss.item(), str((end - start)/i)), flush=True)
-            # break
-            # print(nbatch_norm['aux']['category'][0])
             lr_scheduler.step()
         batch_distances=[]
         
@@ -315,26 +342,27 @@ def train(cfg,save_dir, dataloader, noise_scheduler, model, optimizer, lr_schedu
             avg_distance = np.mean(sample_distances)
             batch_distances.append(avg_distance)
         print(batch_distances)
-        
+        loss_range_acc/=len(dataloader)
         # end of batch loop 
         loss_acc /= len(dataloader)
         loss_pred_acc /= len(dataloader)
         loss_mask_acc /= len(dataloader)
         loss_gt /= len(dataloader)
-        loss_chamfer/=len(dataloader)
+        if total_count>0:
+            loss_chamfer=total_chamfer/total_count
         if use_wandb:
             wandb.log({"Train/Loss": loss_acc}, step=epoch_idx)
         else:
             writer.add_scalar('Loss/train', loss_acc, epoch_idx)
         epoch_end_time = datetime.datetime.now()
-        print("Epoch %d, avg loss is %f, pred_loss is %f, mask_loss is %f, gt is %f, chamfer is %f" %(epoch_idx , loss_acc, loss_pred_acc, loss_mask_acc, loss_gt, loss_chamfer), flush=True)
+        print("Epoch %d, avg loss is %f, pred_loss is %f, mask_loss is %f, gt is %f, chamfer is %f, range is %f" %(epoch_idx , loss_acc, loss_pred_acc, loss_mask_acc, loss_gt, loss_chamfer,loss_range_acc), flush=True)
         if epoch_idx < 5:
             print(" -------------- time for one epoch is %s ------" %(str(epoch_end_time - epoch_start_time)), flush=True)
 
-        if epoch_idx % 2 == 1 :
+        if epoch_idx % 5 == 1 :
             # model_util.save_model_optimizer_lrscheduler_checkpt(model, epoch_idx, optimizer, lr_scheduler, 
                                                                     # os.path.join(save_dir, "model_epoch_%d.pth" %(epoch_idx)))
-            save_dir='/home/soham/garments/preet/here/PPMFNet/checkpoints'
+            save_dir='/csehome/p24cs0005/ppmf/checkpoints_new'
             torch.save(model.state_dict(), os.path.join(save_dir, "model_epoch_%d.pth" % epoch_idx))
 
 
@@ -355,13 +383,14 @@ if __name__ == '__main__':
     #     os.makedirs(save_dir)
     # if not cfg["use_wandb"]:
 
-    writer = SummaryWriter(os.path.join('/home/soham/garments/preet/here/PPMFNet/logs/preet', "runs"))
+    writer = SummaryWriter(os.path.join('/csehome/p24cs0005/p24cs0005/ppmf/preet/', "runs"))
     # yaml_util.save_yaml(os.path.join(save_dir, "config.yaml"), cfg)
     # if cfg["use_wandb"]:
     #     # Loggers
-    data_module, test_loader, cfg = load_kitti_data()
+    data_module, test_loader, cfg = load_kitti_data(split='test')
+    # data_module, val_loader, cfg = load_kitti_data(split='val')
     wandb.init(config=cfg, project='diffusion_model',
-                    name='diff_model', dir='/home/soham/garments/preet/here/PPMFNet/logs/preet')
+                    name='diff_model', dir='/csehome/p24cs0005/ppmf/preet')
     
     start_time = datetime.datetime.now()    
     print("starting time is: ")
@@ -375,10 +404,11 @@ if __name__ == '__main__':
     # breakpoint()
     contact_model, optimizer, lr_scheduler = load_contact_module(cfg, device, test_loader)
     noise_scheduler = load_noise_scheduler(cfg)
-    # stat_dict=torch.load('/home/soham/garments/preet/here/PPMFNet/checkpoints/model_epoch_9.pth')
+    # stat_dict=torch.load('/csehome/p24cs0005/ppmf/checkpoints/model_epoch_31.pth')
     # contact_model.load(state_dict=stat_dict)
+    contact_model = torch.compile(contact_model)
     # contact_model.load_state_dict(stat_dict)
-    save_dir='/home/soham/garments/preet/here/PPMFNet/save'
+    save_dir='/csehome/p24cs0005/ppmf/preet/save'
     # if cfg["num_epochs"] != 0:
     # contact_model = FrameByFrameDiffusion(max_frames=5).to(device)
     
@@ -390,6 +420,3 @@ if __name__ == '__main__':
     end_overall = datetime.datetime.now()
     print("Whole program execution time is: ")
     print(end_overall-start_overall)
-
-
-
