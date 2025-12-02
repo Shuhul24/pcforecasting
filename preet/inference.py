@@ -41,11 +41,11 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
     pcf=GTPointCloudForecaster(cfg)
     chamfer_distance_og = cham_dist(cfg)
     loss_L1=nn.L1Loss(reduction="mean")
-    stats = torch.load("norm_stats.pt")
-    mean = stats['mean'].to(device)
-    std = stats['std'].to(device)
+    # stats = torch.load("norm_stats.pt")
+    # mean = stats['mean'].to(device)
+    # std = stats['std'].to(device)
     loss_bce = nn.BCEWithLogitsLoss(reduction="mean")
-    print(f"Loaded normalization stats: Mean={mean.item():.4f}, Std={std.item():.4f}")
+    # print(f"Loaded normalization stats: Mean={mean.item():.4f}, Std={std.item():.4f}")
     model.eval()
     for epoch_idx in range(0, start_epochs + num_epochs):
         loss_acc = 0
@@ -74,6 +74,7 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
         total_chamfer = 0.0   # <-- Move outside batch loop
         total_count = 0       # <-- Move outside batch loop
         # model.train()
+        model.eval()
         for batch_idx, batch in pbar:
             with torch.no_grad():
 
@@ -94,49 +95,50 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
                 naction_gt = nbatch_norm['action']
                 # frame_position = torch.randint(0, 5, (4,))
                 target_mask = Projection.get_target_mask_from_range_view(naction_gt)
-                naction=naction_gt-predicted_range
-                # naction = (naction - mean) / std
+                naction_delta = naction_gt - predicted_range
 
+                # Define the target for the diffusion model (delta + mask).
+                naction = torch.cat([(target_mask * naction_delta).unsqueeze(2), target_mask.unsqueeze(2)], dim=2)
+
+                # Sample a diffusion iteration for each data point
                 timesteps = torch.randint(
                     0, noise_scheduler.config.num_train_timesteps,
                     (naction.shape[0],), device=device
                 ).long()
-                # forward process
-                # --- 1. SETUP ---
-# Your model should be in evaluation mode
-                model.eval()
 
-                # Define inference parameters
-                num_inference_steps = 50
-                guidance_scale = 0.01 # A common starting point, can be tuned
+                # --- Prepare conditioning input (`obj_feat`) ---
+                # Get masks for past and predicted range data
+                past_data_mask = Projection.get_target_mask_from_range_view(past_data[:, :, 0])
+                predicted_range_mask = Projection.get_target_mask_from_range_view(predicted_range)
 
-                # Create the conditioning input your model expects
-                conditional_input = torch.cat([past_data[:, :, 0], predicted_range], dim=1)
+                # Concatenate the data and masks along the frame dimension
+                input_data = torch.cat([past_data[:, :, 0] * past_data_mask, predicted_range[:] * predicted_range_mask], dim=1)
+                input_mask = torch.cat([past_data_mask, predicted_range_mask], dim=1)
 
-                # ✅ Create the unconditional input (a tensor of zeros)
-                unconditional_input = torch.zeros_like(conditional_input)
+                # Add a channel dimension and concatenate data and mask to create the final input
+                input = torch.cat([input_data.unsqueeze(2), input_mask.unsqueeze(2)], dim=2)
 
-                # ✅ Combine them into a single batch for an efficient cond pass
-                combined_input = torch.cat([conditional_input, unconditional_input], dim=0)
-
-                # ✅ Set the scheduler's timesteps for the denoising loop
-                noise_scheduler.set_timesteps(num_inference_steps)
+                # --- Prepare noisy sample ---
                 noise = torch.randn(naction.shape, device=device).float()
-                # ✅ Start with pure random noise
-                # The shape should match your desired output shape (B, T_fut, H, W)
-                sample_pred = torch.randn(naction_gt.shape, device=device).float()
-                # sample_pred = model(noise, timesteps, 
-                #                 obj_feat=conditional_input)
-                # AFTER (consistent with training single-step)
-                noise = torch.randn(naction.shape, device=device).float()
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps,
-                                        (naction.shape[0],), device=device).long()
-                # create the noisy sample exactly like training
                 noisy_actions = noise_scheduler.add_noise(naction, noise, timesteps)
-                output = model(noisy_actions, timesteps, obj_feat=conditional_input)
+
+                output = model(noisy_actions, timesteps, 
+                                    obj_feat=input)  
                 sample_pred,mask= output[:,:,0,:,:],output[:,:,1,:,:]
                 # sample_pred = sample_pred * std + mean
-                final_inter=sample_pred+predicted_range[:]
+                # pixelwise_loss = loss_L1_no_reduction(sample_pred, norm_naction)
+
+                # ✅ Only average the loss from valid pixels (where mask is 1)
+                # masked_loss = pixelwise_loss * target_mask
+                # loss_delta = masked_loss.sum() / (target_mask.sum() + 1e-8)
+
+                loss_mask = loss_bce(mask, target_mask)
+
+                # This is your final, correct loss
+                # loss_pred = loss_delta + loss_mask
+                # with torch.no_grad():
+                # final_delta=sample_pred*std+mean
+                final_inter=target_mask*(sample_pred+predicted_range[:])
                 # if torch.isnan(final_inter).any():
                 #     print("NaN detected in 'final' tensor calculation!")
                 #     # Also check the inputs to be sure
@@ -145,31 +147,33 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
                 if batch_idx % 500 == 0 and torch.isnan(final_inter).any():
                     print("NaN detected!")
                 
-                final = torch.where(final_inter < 0, minus1, final_inter)
+                final = torch.where(final_inter < 0, zero, final_inter.clone())
+                # breakpoint()
+                final=target_mask*final
                 # final = torch.where(0>final_inter > -0.5, zero, final_inter)
                 # === Compute L2 losses ===
-                masked_rv=Projection.get_masked_range_view(final,mask)
-                sample_pred[naction_gt == -1.0] = -1.0
-                naction[naction_gt == -1.0] = -1.0
-                loss_delta = loss_L1(sample_pred,naction)
-                loss_mask=loss_bce(mask,target_mask)
-                loss_pred=loss_delta+loss_mask
-                masked_rv[naction_gt == -1.0] = -1.0
+                # masked_rv=Projection.get_masked_range_view(final,mask)
+                
+                naction_delta_gt = naction_gt - predicted_range
+                sample_pred = torch.where(naction_gt == -1.0, torch.full_like(sample_pred, -1.0), sample_pred)
+                naction_delta_gt = torch.where(naction_gt == -1.0, torch.full_like(naction_delta_gt, -1.0), naction_delta_gt)
+                loss_delta_unnorm = loss_L1(sample_pred, naction_delta_gt)
+                # loss_mask=loss_bce(mask,target_mask)
+                # loss_pred=loss_delta+loss_mask
+                # masked_rv[naction_gt == -1.0] = -1.0
                 # naction_gt[naction_gt == -1.0] = -1.0
-                final[naction_gt==-1.0]=-1.0
-                loss_range=loss_L1(final,naction_gt)
+                # naction_gt_loss = torch.where(naction_gt < 0, zero, naction_gt.clone())
+                #final = torch.where(naction_gt == -1.0, torch.full_like(final, -1.0), final)
+                # pixelwise_loss = loss_L1_no_reduction(final, naction_gt)
+                loss_range=loss_L1(final,target_mask*naction_gt)
+                print('range_loss:',loss_range)
                 # final=masked_rv
+                loss_pred = loss_range + loss_mask
                 # if torch.isnan(mask).any() or torch.isinf(mask).any():
                 #     print("NaN or Inf found in MASK tensor!")
                 # loss_mask = nn.BCEWithLogitsLoss()(mask, target_mask)
                 # print('pred_loss:',loss_L1(sample_pred+predicted_range, naction_gt))
                 loss2=loss_L1(naction_gt,sample_pred+predicted_range[:])
-                loss2=loss_L1(naction_gt,final)
-                print('predicted',loss2)
-                loss2=loss_L1(naction_gt,final_inter)
-                
-                loss2=loss_L1(naction_gt,predicted_range)
-                print('odo:',loss2)
                 # breakpoint()
                 # λ_rot=0.1
                 # loss = loss_pred 
@@ -212,7 +216,7 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
 
                     else:
                         loss_chamfer_distance = torch.tensor(0.0, device=device)
-                    loss=4*loss_chamfer_distance+0.25*loss_pred
+                    loss=loss_chamfer_distance+loss_pred
                     
                     loss_chamfer+=loss_chamfer_distance.item()
                 else:
@@ -221,97 +225,97 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
                 
                 # Set model back to training mode
                 
-                output_dir='/home/soham/garments/preet/here/PPMFNet/preet/saved_output'
+                output_dir='/csehome/p24cs0005/ppmf/preet/saved_output_new'
                     # Save range images
-                for b in range(B):
-                    for t in range(T_fut):
-                        # Save ground truth range image
-                        gt_range = naction_gt[b, t].cpu().numpy()
-                        gt_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_gt_range.npy")
-                        np.save(gt_filename, gt_range)
-                        gt_min = gt_range.min()
-                        gt_max = gt_range.max()
+                # for b in range(B):
+                #     for t in range(T_fut):
+                #         # Save ground truth range image
+                #         gt_range = naction_gt[b, t].cpu().numpy()
+                #         gt_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_gt_range.npy")
+                #         np.save(gt_filename, gt_range)
+                #         gt_min = gt_range.min()
+                #         gt_max = gt_range.max()
 
-                        # Avoid division by zero if the image is constant
-                        if gt_max > gt_min:
-                            normalized_range = (gt_range - gt_min) / (gt_max - gt_min) * 255.0
-                        else:
-                            normalized_range = np.zeros_like(gt_range)
+                #         # Avoid division by zero if the image is constant
+                #         if gt_max > gt_min:
+                #             normalized_range = (gt_range - gt_min) / (gt_max - gt_min) * 255.0
+                #         else:
+                #             normalized_range = np.zeros_like(gt_range)
 
-                        normalized_range = normalized_range.astype(np.uint8)
+                #         normalized_range = normalized_range.astype(np.uint8)
 
-                        # Create output directory if it doesn't exist
-                        # output_dir = 'output_directory_path'  # Set this accordingly
-                        # os.makedirs(output_dir, exist_ok=True)
+                #         # Create output directory if it doesn't exist
+                #         # output_dir = 'output_directory_path'  # Set this accordingly
+                #         # os.makedirs(output_dir, exist_ok=True)
 
-                        # Save as PNG
-                        gt_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_gt_range.png")
-                        Image.fromarray(normalized_range).save(gt_filename)
-                        # Save predicted range image
-                        pred_range = final[b, t].detach().cpu().numpy()
-                        pred_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_pred_range.npy")
-                        np.save(pred_filename, pred_range)
-                        gt_min = pred_range.min()
-                        gt_max = pred_range.max()
+                #         # Save as PNG
+                #         gt_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_gt_range.png")
+                #         Image.fromarray(normalized_range).save(gt_filename)
+                #         # Save predicted range image
+                #         pred_range = final[b, t].detach().cpu().numpy()
+                #         pred_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_pred_range.npy")
+                #         np.save(pred_filename, pred_range)
+                #         gt_min = pred_range.min()
+                #         gt_max = pred_range.max()
 
-                        # Avoid division by zero if the image is constant
-                        if gt_max > gt_min:
-                            normalized_range = (pred_range - gt_min) / (gt_max - gt_min) * 255.0
-                        else:
-                            normalized_range = np.zeros_like(pred_range)
+                #         # Avoid division by zero if the image is constant
+                #         if gt_max > gt_min:
+                #             normalized_range = (pred_range - gt_min) / (gt_max - gt_min) * 255.0
+                #         else:
+                #             normalized_range = np.zeros_like(pred_range)
 
-                        normalized_range = normalized_range.astype(np.uint8)
+                #         normalized_range = normalized_range.astype(np.uint8)
 
-                        # Create output directory if it doesn't exist
-                        # output_dir = 'output_directory_path'  # Set this accordingly
-                        # os.makedirs(output_dir, exist_ok=True)
+                #         # Create output directory if it doesn't exist
+                #         # output_dir = 'output_directory_path'  # Set this accordingly
+                #         # os.makedirs(output_dir, exist_ok=True)
 
-                        # Save as PNG
-                        gt_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_pred_range.png")
-                        Image.fromarray(normalized_range).save(gt_filename)
-                        # Convert to point clouds and save
-                        # You need the mask or threshold; here we use values > 0
-                        gt_pc = Projection.get_valid_points_from_range_view(
-                            naction_gt[b, t, :, :].cpu()
-                        )
+                #         # Save as PNG
+                #         gt_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_pred_range.png")
+                #         Image.fromarray(normalized_range).save(gt_filename)
+                #         # Convert to point clouds and save
+                #         # You need the mask or threshold; here we use values > 0
+                #         gt_pc = Projection.get_valid_points_from_range_view(
+                #             naction_gt[b, t, :, :].cpu()
+                #         )
 
-                            # Create open3d point cloud object
-                        pcd = o3d.geometry.PointCloud()
-                        pcd.points = o3d.utility.Vector3dVector(gt_pc)
+                #             # Create open3d point cloud object
+                #         pcd = o3d.geometry.PointCloud()
+                #         pcd.points = o3d.utility.Vector3dVector(gt_pc)
 
-                        # Save point cloud
-                        pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_gt_pc.ply")
-                        o3d.io.write_point_cloud(pcd_filename, pcd)
+                #         # Save point cloud
+                #         pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_gt_pc.ply")
+                #         o3d.io.write_point_cloud(pcd_filename, pcd)
 
-                        # Similarly for ground truth point cloud
-                        output_points = Projection.get_valid_points_from_range_view(
-                            final[b, t, :, :].cpu()
-                        )
+                #         # Similarly for ground truth point cloud
+                #         output_points = Projection.get_valid_points_from_range_view(
+                #             final[b, t, :, :].cpu()
+                #         )
 
-                        pcd_gt = o3d.geometry.PointCloud()
-                        pcd_gt.points = o3d.utility.Vector3dVector(output_points.numpy())
+                #         pcd_gt = o3d.geometry.PointCloud()
+                #         pcd_gt.points = o3d.utility.Vector3dVector(output_points.numpy())
 
-                        gt_pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_pred_pc.ply")
-                        o3d.io.write_point_cloud(gt_pcd_filename, pcd_gt)
-                        output_points = Projection.get_valid_points_from_range_view(
-                            predicted_range[b, t, :, :].cpu()
-                        )
+                #         gt_pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_pred_pc.ply")
+                #         o3d.io.write_point_cloud(gt_pcd_filename, pcd_gt)
+                #         output_points = Projection.get_valid_points_from_range_view(
+                #             predicted_range[b, t, :, :].cpu()
+                #         )
 
-                        pcd_gt = o3d.geometry.PointCloud()
-                        pcd_gt.points = o3d.utility.Vector3dVector(output_points)
+                #         pcd_gt = o3d.geometry.PointCloud()
+                #         pcd_gt.points = o3d.utility.Vector3dVector(output_points)
 
-                        gt_pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_odo_pc.ply")
-                        o3d.io.write_point_cloud(gt_pcd_filename, pcd_gt)
-                        output_points = Projection.get_valid_points_from_range_view(
-                            past_data[b, t,0, :, :].cpu()
-                        )
+                #         gt_pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_odo_pc.ply")
+                #         o3d.io.write_point_cloud(gt_pcd_filename, pcd_gt)
+                #         output_points = Projection.get_valid_points_from_range_view(
+                #             past_data[b, t,0, :, :].cpu()
+                #         )
 
-                        pcd_gt = o3d.geometry.PointCloud()
-                        pcd_gt.points = o3d.utility.Vector3dVector(output_points)
+                #         pcd_gt = o3d.geometry.PointCloud()
+                #         pcd_gt.points = o3d.utility.Vector3dVector(output_points)
 
-                        gt_pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_input_pc.ply")
-                        o3d.io.write_point_cloud(gt_pcd_filename, pcd_gt)
-            breakpoint()
+                #         gt_pcd_filename = os.path.join(output_dir, f"batch{batch_idx}_sample{b}_timestep{t}_input_pc.ply")
+                #         o3d.io.write_point_cloud(gt_pcd_filename, pcd_gt)
+            # breakpoint()
             loss_pred_acc+=loss_pred.item()
             # loss_mask_acc+=loss_mask.item()
             loss_gt+=loss2.item()
@@ -320,12 +324,12 @@ def train(cfg, dataloader, noise_scheduler, model, start_epochs, num_epochs, use
         loss_pred_acc /= len(dataloader)
         loss_mask_acc /= len(dataloader)
         loss_gt /= len(dataloader)
+        
         if total_count>0:
             loss_chamfer=total_chamfer/total_count
         print("Epoch %d, avg loss is %f, pred_loss is %f, mask_loss is %f, gt is %f, chamfer is %f" %(epoch_idx , loss_acc, loss_pred_acc, loss_mask_acc, loss_gt, loss_chamfer), flush=True)
 
-    print(loss_chamfer/len(dataloader)
-              )
+    
                 # final can now be used as the output prediction
             #     output_result = final
             #     # batch_distances=[]
@@ -451,7 +455,7 @@ if __name__ == '__main__':
     
     # Initialize wandb for logging if needed (optional)
     wandb.init(config=cfg, project='diffusion_model',
-               name='diff_model_inference', dir='/home/soham/garments/preet/here/PPMFNet/logs/preet')
+               name='diff_model_inference', dir='/csehome/p24cs0005/ppmf/preet')
     
     print("Starting inference at:", datetime.datetime.now())
     
@@ -459,7 +463,7 @@ if __name__ == '__main__':
     
     # Load model and scheduler
     contact_model, _, _ = load_contact_module(cfg, device, test_loader)  # optimizer and scheduler unused in inference
-    checkpoint = torch.load('/home/soham/garments/preet/here/PPMFNet/checkpoints/model_epoch_7.pth')
+    checkpoint = torch.load('/csehome/p24cs0005/ppmf/checkpoints_new/model_epoch_36.pth')
     contact_model = torch.compile(contact_model)
     contact_model.load_state_dict(checkpoint)
     # contact_model = torch.compile(contact_model)
