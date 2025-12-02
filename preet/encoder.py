@@ -55,36 +55,108 @@ class VideoPatchDecoder(nn.Module):
         x = self.proj(x)
         return x  # (B, out_channels, F, H, W)
 
+
+
+# class FrameEncoder(nn.Module):
+#     def __init__(self, patch_size=32, emb_dim=512):
+#         super().__init__()
+#         self.patch_size = patch_size
+#         self.emb_dim = emb_dim
+#         self.proj = nn.Conv2d(1, emb_dim, kernel_size=patch_size, stride=patch_size)
+
+#     def forward(self, x):
+#         # x: (B, F, H, W)
+#         B, F, H, W = x.shape
+#         H_patches, W_patches = H // self.patch_size, W // self.patch_size
+#         # breakpoint()
+#         x = x.reshape(B*F, 1, H, W)                 # (B*F, 1, H, W)
+#         x = self.proj(x)                         # (B*F, D, H/P, W/P)
+#         x = x.flatten(2).transpose(1, 2)         # (B*F, T, D), T = H_patches*W_patches
+#         x = x.reshape(B, F, -1, self.emb_dim)       # (B, F, T, D)
+
+#         return x, (H_patches, W_patches)
+
+
 class FrameEncoder(nn.Module):
-    def __init__(self, patch_size=32, emb_dim=512):
+    def __init__(self, patch_size=32, emb_dim=512, in_channels=2):
         super().__init__()
         self.patch_size = patch_size
         self.emb_dim = emb_dim
-        self.proj = nn.Conv2d(1, emb_dim, kernel_size=patch_size, stride=patch_size)
+        self.in_channels = in_channels
+        
+        # Changed 1 -> in_channels
+        self.proj = nn.Conv2d(in_channels, emb_dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x):
-        # x: (B, F, H, W)
-        B, F, H, W = x.shape
+        # x is now expected to be: (B, F, C, H, W)
+        # B=Batch, F=Frames, C=Channels (2), H=Height, W=Width
+        B, F, C, H, W = x.shape
+        
+        # Sanity check
+        assert C == self.in_channels, f"Input has {C} channels, expected {self.in_channels}"
+
         H_patches, W_patches = H // self.patch_size, W // self.patch_size
-        # breakpoint()
-        x = x.reshape(B*F, 1, H, W)                 # (B*F, 1, H, W)
+
+        # Reshape: Merge Batch and Frames, keep Channels separate
+        x = x.reshape(B*F, C, H, W)              # (B*F, C, H, W)
+        
         x = self.proj(x)                         # (B*F, D, H/P, W/P)
-        x = x.flatten(2).transpose(1, 2)         # (B*F, T, D), T = H_patches*W_patches
-        x = x.reshape(B, F, -1, self.emb_dim)       # (B, F, T, D)
+        x = x.flatten(2).transpose(1, 2)         # (B*F, T, D)
+        x = x.reshape(B, F, -1, self.emb_dim)    # (B, F, T, D)
 
         return x, (H_patches, W_patches)
+
+
+
+
+
+# class FrameDecoder(nn.Module):
+#     def __init__(self, patch_size=32, emb_dim=512, out_channels=1):
+#         super().__init__()
+#         self.patch_size = patch_size
+#         self.emb_dim = emb_dim
+        
+#         # --- Store out_channels ---
+#         self.out_channels = out_channels 
+        
+#         self.proj = nn.ConvTranspose2d(
+#             in_channels=emb_dim,
+#             out_channels=self.out_channels, # Use it here
+#             kernel_size=patch_size,
+#             stride=patch_size
+#         )
+
+#     def forward(self, x, patch_shape):
+#         """
+#         x: (B, F, T, D)
+#         patch_shape: (H_patches, W_patches) from encoder
+#         """
+#         B, F, T, D = x.shape
+#         H_patches, W_patches = patch_shape
+#         assert H_patches * W_patches == T, f"Mismatch: {H_patches}×{W_patches} != {T}"
+
+#         x = x.reshape(B*F, T, D).transpose(1, 2)         # (B*F, D, T)
+#         x = x.reshape(B*F, D, H_patches, W_patches)      # (B*F, D, H/P, W/P)
+        
+#         # This proj layer now outputs (B*F, self.out_channels, H, W)
+#         x = self.proj(x)
+        
+#         # --- Use self.out_channels instead of 1 ---
+#         x = x.view(B, F, self.out_channels, x.shape[-2], x.shape[-1]) 
+        
+#         return x
+
+
 class FrameDecoder(nn.Module):
-    def __init__(self, patch_size=32, emb_dim=512, out_channels=1):
+    def __init__(self, patch_size=32, emb_dim=512, out_channels=2):
         super().__init__()
         self.patch_size = patch_size
         self.emb_dim = emb_dim
-        
-        # --- Store out_channels ---
         self.out_channels = out_channels 
         
         self.proj = nn.ConvTranspose2d(
             in_channels=emb_dim,
-            out_channels=self.out_channels, # Use it here
+            out_channels=self.out_channels, # Will be 2
             kernel_size=patch_size,
             stride=patch_size
         )
@@ -92,19 +164,20 @@ class FrameDecoder(nn.Module):
     def forward(self, x, patch_shape):
         """
         x: (B, F, T, D)
-        patch_shape: (H_patches, W_patches) from encoder
+        patch_shape: (H_patches, W_patches)
         """
         B, F, T, D = x.shape
         H_patches, W_patches = patch_shape
-        assert H_patches * W_patches == T, f"Mismatch: {H_patches}×{W_patches} != {T}"
-
-        x = x.reshape(B*F, T, D).transpose(1, 2)         # (B*F, D, T)
-        x = x.reshape(B*F, D, H_patches, W_patches)      # (B*F, D, H/P, W/P)
         
-        # This proj layer now outputs (B*F, self.out_channels, H, W)
+        # Flatten B and F, move embedding dim to channel position for ConvTranspose
+        x = x.reshape(B*F, T, D).transpose(1, 2)         # (B*F, D, T)
+        x = x.reshape(B*F, D, H_patches, W_patches)      # (B*F, D, H_patches, W_patches)
+        
+        # Project back to pixel space
+        # Output is (B*F, out_channels, H, W)
         x = self.proj(x)
         
-        # --- Use self.out_channels instead of 1 ---
+        # Reshape to (B, F, C, H, W)
         x = x.view(B, F, self.out_channels, x.shape[-2], x.shape[-1]) 
         
         return x
